@@ -62,6 +62,110 @@ function splitMessage(text, maxLength = 1900) {
 }
 
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
+const cooldowns = new Map();
+
+//////////////////// 處理指令 ////////////////////
+client.on(Events.InteractionCreate, async interaction => {
+  try {
+    if (!interaction.isChatInputCommand()) return;
+
+    const cmd = interaction.commandName;
+    const userId = interaction.user.id;
+    const key = `${userId}-${cmd}`;
+    const now = Date.now();
+
+    // 冷卻檢查
+    if (cooldowns.has(key) && now < cooldowns.get(key))
+      return interaction.reply({ content: '🕒 請稍後再使用', ephemeral: true });
+
+    cooldowns.set(key, now + COOLDOWN_MS);
+
+    // ---------- 重啟指令 ----------
+    if (cmd === '重啟') {
+      if (userId !== CREATOR_ID)
+        return interaction.reply({ content: '❌ 你沒有權限使用此指令', ephemeral: true });
+      await interaction.reply({ content: '🔄 Bot 正在重啟...' });
+      process.exit();
+    }
+
+    // ---------- 炸訊息指令 ----------
+    if (['炸1','炸2','炸3','炸4'].includes(cmd)) {
+      if (interaction.guild) {
+        const member = interaction.member;
+        if (!member.roles.cache.some(r => r.name === ALLOWED_ROLE_NAME))
+          return interaction.reply({ content: `❌ 你必須擁有身分組 **${ALLOWED_ROLE_NAME}** 才能使用此指令`, ephemeral: true });
+      }
+      await interaction.reply({ content: '🚀 開始發送訊息...', ephemeral: true });
+      const parts = splitMessage(spamMessages[cmd]);
+      for (let i = 0; i < 3; i++) { // 每段重複3次
+        for (const p of parts) {
+          if (interaction.guild)
+            await interaction.channel.send(p);
+          else
+            await interaction.user.send(p);
+          await sleep(300); // 延遲，降低觸發限制
+        }
+      }
+      return;
+    }
+
+    // ---------- 炸私聊 ----------
+    if (cmd === '炸私聊') {
+      if (interaction.guild) {
+        const member = interaction.member;
+        if (!member.roles.cache.some(r => r.name === ALLOWED_ROLE_NAME))
+          return interaction.reply({ content: `❌ 你必須擁有身分組 **${ALLOWED_ROLE_NAME}** 才能使用此指令`, ephemeral: true });
+      }
+      const parts = splitMessage(spamMessages['炸1']);
+      for (const p of parts) {
+        await interaction.user.send(p);
+        await sleep(300); // 延遲避免觸發限制
+      }
+      return interaction.reply({ content: '✅ 已私訊炸1訊息', ephemeral: true });
+    }
+
+  } catch (e) {
+    console.error(e);
+  }
+});
+
+client.once('ready', () => console.log(`🤖 Bot 已上線：${client.user.tag}`));
+
+// 保活伺服器
+const express = require('express');
+const app = express();
+app.get("/", (req, res) => res.send("Bot is running"));
+app.listen(process.env.PORT || 3000, () => console.log('✅ 保活伺服器已啟動'));
+
+client.login(process.env.DISCORD_TOKEN);
+    .setName(k)
+    .setDescription(`發送 ${k} 訊息`).toJSON()),
+  new SlashCommandBuilder().setName('炸私聊').setDescription('將炸1訊息私訊給使用者').toJSON(),
+  new SlashCommandBuilder().setName('重啟').setDescription('重新啟動機器人（僅創建者）').toJSON()
+];
+
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+(async () => {
+  try {
+    await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+    console.log('✅ 全局指令已註冊完成');
+  } catch (e) {
+    console.error('❌ 註冊指令失敗:', e);
+  }
+})();
+
+//////////////////// 工具函數 ////////////////////
+function splitMessage(text, maxLength = 1900) {
+  const parts = []; let current = '';
+  for (const line of text.split('\n')) {
+    if ((current + line + '\n').length > maxLength) { parts.push(current); current = ''; }
+    current += line + '\n';
+  }
+  if (current.length) parts.push(current);
+  return parts;
+}
+
+function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
 
 const cooldowns = new Map();
 
@@ -483,5 +587,6 @@ app.get("/", (req, res) => res.send("Bot is running"));
 app.listen(process.env.PORT || 3000, () => console.log('✅ 保活伺服器已啟動'));
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
