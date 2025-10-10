@@ -1,9 +1,10 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, Events, SlashCommandBuilder, REST, Routes } = require('discord.js');
+const express = require('express');
 
 // ---------- 基本設定 ----------
-const CREATOR_ID = '1424308660900724858'; // 創建者ID
-const COOLDOWN_MS = 1000; // 每個使用者冷卻時間(ms)
+const CREATOR_ID = '1424308660900724858';
+const COOLDOWN_MS = 1000;
 
 // ---------- 建立 Client ----------
 const client = new Client({
@@ -30,33 +31,46 @@ const spamMessages = {
   炸4: `# 你想要免費機器人嗎？\n# 來吧！\n# 來這個服務器吧！\n# https://discord.gg/QQWERNrPCG`
 };
 
-// ---------- Slash 指令註冊 ----------
+// ---------- Slash 指令內容 ----------
 const commands = [
   ...Object.keys(spamMessages).map(k =>
     new SlashCommandBuilder()
       .setName(k)
       .setDescription(`發送 ${k} 訊息`).toJSON()
   ),
-  new SlashCommandBuilder().setName('炸私聊').setDescription('將炸1訊息私訊給自己').toJSON(),
   new SlashCommandBuilder()
-    .setName('炸私聊指定')
-    .setDescription('將炸1訊息私訊給指定使用者ID')
-    .addStringOption(opt => opt.setName('id').setDescription('使用者ID').setRequired(true))
+    .setName('炸私聊')
+    .setDescription('將炸1訊息私訊給指定使用者')
+    .addUserOption(opt =>
+      opt.setName('user')
+        .setDescription('標記目標使用者')
+        .setRequired(false)
+    )
+    .addStringOption(opt =>
+      opt.setName('id')
+        .setDescription('輸入目標使用者ID')
+        .setRequired(false)
+    )
     .toJSON(),
-  new SlashCommandBuilder().setName('重啟').setDescription('重新啟動機器人（僅創建者）').toJSON()
+  new SlashCommandBuilder()
+    .setName('重啟')
+    .setDescription('重新啟動機器人（僅創建者）')
+    .toJSON()
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-(async () => {
-  try {
-    await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-    console.log('✅ 全域指令註冊完成');
-  } catch (e) {
-    console.error('❌ 指令註冊失敗:', e);
-  }
-})();
 
-// ---------- 工具 ----------
+// ---------- 註冊指令函數 ----------
+async function registerGuildCommands(guildId) {
+  try {
+    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId), { body: commands });
+    console.log(`✅ 指令已註冊到伺服器 ${guildId}`);
+  } catch (e) {
+    console.error(`❌ 指令註冊失敗（伺服器 ${guildId}）：`, e);
+  }
+}
+
+// ---------- 工具函數 ----------
 function splitMessage(text, maxLength = 1900) {
   const parts = [];
   let current = '';
@@ -70,6 +84,7 @@ function splitMessage(text, maxLength = 1900) {
   if (current.length) parts.push(current);
   return parts;
 }
+
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
 const cooldowns = new Map();
 
@@ -96,33 +111,28 @@ client.on(Events.InteractionCreate, async interaction => {
     return process.exit();
   }
 
-  // ---------- 炸私聊指定 ----------
-  if (cmd === '炸私聊指定') {
-    const targetId = interaction.options.getString('id');
-    let target;
-    try {
-      target = await client.users.fetch(targetId);
-    } catch {
-      return interaction.reply({ content: '❌ 找不到該使用者', ephemeral: true });
+  // ---------- 炸私聊 ----------
+  if (cmd === '炸私聊') {
+    let target = interaction.options.getUser('user'); // 標記使用者
+    const targetId = interaction.options.getString('id'); // 使用者ID
+
+    if (!target && !targetId)
+      return interaction.reply({ content: '❌ 請提供 @使用者 或 使用者ID', ephemeral: true });
+
+    if (!target && targetId) {
+      try {
+        target = await client.users.fetch(targetId);
+      } catch {
+        return interaction.reply({ content: '❌ 找不到該使用者', ephemeral: true });
+      }
     }
+
     const parts = splitMessage(spamMessages['炸1']);
     for (const p of parts) {
       await target.send(p);
       await sleep(300);
     }
-    return interaction.reply({ content: `✅ 已私訊炸1給 <@${targetId}>`, ephemeral: true });
-  }
-
-  // ---------- 炸私聊 ----------
-  if (cmd === '炸私聊') {
-    const parts = splitMessage(spamMessages['炸1']);
-    for (let i = 0; i < 3; i++) {
-      for (const p of parts) {
-        await interaction.user.send(p);
-        await sleep(300);
-      }
-    }
-    return interaction.reply({ content: '✅ 已私訊炸1訊息', ephemeral: true });
+    return interaction.reply({ content: `✅ 已私訊炸1給 <@${target.id}>`, ephemeral: true });
   }
 
   // ---------- 伺服器訊息 ----------
@@ -138,11 +148,22 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-// ---------- 啟動 ----------
-client.once('ready', () => console.log(`🤖 Bot 已上線：${client.user.tag}`));
+// ---------- Bot 上線 ----------
+client.once('ready', async () => {
+  console.log(`🤖 Bot 已上線：${client.user.tag}`);
+  // Bot 上線時自動註冊目前所有伺服器
+  for (const guild of client.guilds.cache.values()) {
+    await registerGuildCommands(guild.id);
+  }
+});
+
+// ---------- 新伺服器加入時自動註冊 ----------
+client.on(Events.GuildCreate, async guild => {
+  console.log(`➡ Bot 加入新伺服器：${guild.id}`);
+  await registerGuildCommands(guild.id);
+});
 
 // ---------- 保活 ----------
-const express = require('express');
 const app = express();
 app.get("/", (req, res) => res.send("Bot is running"));
 app.listen(process.env.PORT || 3000, () => console.log('✅ 保活伺服器已啟動'));
