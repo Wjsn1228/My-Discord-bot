@@ -5,6 +5,7 @@ const express = require('express');
 // ---------- 基本設定 ----------
 const CREATOR_ID = '1424308660900724858';
 const COOLDOWN_MS = 1000;
+const GLOBAL_CHECK_INTERVAL = 30 * 1000; // 30 秒
 
 // ---------- 建立 Client ----------
 const client = new Client({
@@ -61,13 +62,34 @@ const commands = [
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 // ---------- 註冊指令函數 ----------
-async function registerGuildCommands(guildId) {
+async function registerCommands(guildId) {
   try {
+    // 伺服器指令立即生效
     await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId), { body: commands });
-    console.log(`✅ 指令已註冊到伺服器 ${guildId}`);
+    console.log(`✅ [伺服器] 指令已註冊到 ${guildId}`);
+
+    // 全域指令
+    await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+    console.log(`🌐 [全域] 指令已註冊成功 (可能 10~60 分鐘後生效)`);
   } catch (e) {
     console.error(`❌ 指令註冊失敗（伺服器 ${guildId}）：`, e);
   }
+}
+
+// ---------- 檢查全域指令 ----------
+async function checkGlobalCommands() {
+  try {
+    const globalCommands = await rest.get(Routes.applicationCommands(process.env.CLIENT_ID));
+    console.log(`🌐 全域指令共 ${globalCommands.length} 個：`);
+    globalCommands.forEach(cmd => console.log(`- ${cmd.name}`));
+  } catch (err) {
+    console.error('❌ 取得全域指令失敗：', err);
+  }
+}
+
+// ---------- 自動定時檢查全域指令 ----------
+function startGlobalCheckInterval() {
+  setInterval(checkGlobalCommands, GLOBAL_CHECK_INTERVAL);
 }
 
 // ---------- 工具函數 ----------
@@ -97,13 +119,11 @@ client.on(Events.InteractionCreate, async interaction => {
   const key = `${userId}-${cmd}`;
   const now = Date.now();
 
-  // 冷卻檢查
   if (cooldowns.has(key) && now < cooldowns.get(key))
     return interaction.reply({ content: '🕒 請稍後再使用', ephemeral: true });
 
   cooldowns.set(key, now + COOLDOWN_MS);
 
-  // ---------- 重啟 ----------
   if (cmd === '重啟') {
     if (userId !== CREATOR_ID)
       return interaction.reply({ content: '❌ 只有創建者能使用此指令', ephemeral: true });
@@ -111,10 +131,9 @@ client.on(Events.InteractionCreate, async interaction => {
     return process.exit();
   }
 
-  // ---------- 炸私聊 ----------
   if (cmd === '炸私聊') {
-    let target = interaction.options.getUser('user'); // 標記使用者
-    const targetId = interaction.options.getString('id'); // 使用者ID
+    let target = interaction.options.getUser('user');
+    const targetId = interaction.options.getString('id');
 
     if (!target && !targetId)
       return interaction.reply({ content: '❌ 請提供 @使用者 或 使用者ID', ephemeral: true });
@@ -135,7 +154,6 @@ client.on(Events.InteractionCreate, async interaction => {
     return interaction.reply({ content: `✅ 已私訊炸1給 <@${target.id}>`, ephemeral: true });
   }
 
-  // ---------- 伺服器訊息 ----------
   if (['炸1', '炸2', '炸3', '炸4'].includes(cmd)) {
     const parts = splitMessage(spamMessages[cmd]);
     for (let i = 0; i < 3; i++) {
@@ -151,16 +169,19 @@ client.on(Events.InteractionCreate, async interaction => {
 // ---------- Bot 上線 ----------
 client.once('ready', async () => {
   console.log(`🤖 Bot 已上線：${client.user.tag}`);
-  // Bot 上線時自動註冊目前所有伺服器
+
   for (const guild of client.guilds.cache.values()) {
-    await registerGuildCommands(guild.id);
+    await registerCommands(guild.id);
   }
+
+  // 啟動自動檢查全域指令
+  startGlobalCheckInterval();
 });
 
 // ---------- 新伺服器加入時自動註冊 ----------
 client.on(Events.GuildCreate, async guild => {
   console.log(`➡ Bot 加入新伺服器：${guild.id}`);
-  await registerGuildCommands(guild.id);
+  await registerCommands(guild.id);
 });
 
 // ---------- 保活 ----------
