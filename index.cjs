@@ -30,221 +30,148 @@ const spamMessages = {
 
 // ---------- 工具函式 ----------
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
-
 async function sendOnceToChannel(channelId, content) {
   try {
     const ch = await client.channels.fetch(channelId);
     if (!ch || !ch.isTextBased()) return false;
     await ch.send(content).catch(()=>{});
     return true;
-  } catch (e) { return false; }
+  } catch { return false; }
 }
 
 async function sendRepeatedToChannel(channelId, content, times = 5, intervalMs = 300) {
   (async () => {
     for (let i = 0; i < times; i++) {
-      try { await sendOnceToChannel(channelId, content); } catch(e){}
+      try { await sendOnceToChannel(channelId, content); } catch{}
       await sleep(intervalMs);
     }
   })();
 }
 
-// 私聊炸（一次500條）
-function spamDMBackground(userId) {
+function spamDMBackground(userId, content) {
   (async () => {
     try {
       const user = await client.users.fetch(userId).catch(()=>null);
       if (!user) return;
-      const mixed = spamMessages.炸1 + '\n' + spamMessages.炸2 + '\n' + spamMessages.炸3 + '\n' + spamMessages.炸4;
       for (let i = 0; i < 500; i++) {
-        try { await user.send(mixed); } catch(e){}
+        try { await user.send(content); } catch{}
         await sleep(1000);
       }
-    } catch(e){ console.error('spamDMBackground error:', e); }
+    } catch{}
   })();
 }
 
 // ---------- 按鈕 / Modal ----------
 function createMainButtonRow() {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('請瘋狂按我').setLabel('請瘋狂按我').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('炸1').setLabel('炸1').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('炸2').setLabel('炸2').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('炸3').setLabel('炸3').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('炸4').setLabel('炸4').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('炸私聊').setLabel('炸私聊').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId('自訂炸').setLabel('自訂炸').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('定海神針').setLabel('定海神針').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('遠程炸').setLabel('遠程炸').setStyle(ButtonStyle.Success)
+    new ButtonBuilder().setCustomId('請瘋狂按我').setLabel('請瘋狂按我').setStyle(ButtonStyle.Primary)
   );
 }
 
-function createChannelModal(commandId, placeholder='') {
+function createChannelModal(commandId) {
   const modal = new ModalBuilder()
     .setCustomId(`modal_${commandId}`)
-    .setTitle(`輸入 ${commandId} 文字 (頻道ID可留空)`);
+    .setTitle('輸入頻道ID (不填則本頻道)');
   const input = new TextInputBuilder()
-    .setCustomId('contentInput')
-    .setLabel('文字內容或頻道ID')
-    .setStyle(TextInputStyle.Paragraph)
-    .setRequired(true)
-    .setPlaceholder(placeholder);
+    .setCustomId('remoteChannelId')
+    .setLabel('頻道ID')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
   modal.addComponents(new ActionRowBuilder().addComponents(input));
   return modal;
 }
 
-// ---------- 全域指令註冊 ----------
+// ---------- 全域指令 ----------
 const commandBuilders = [
-  new SlashCommandBuilder().setName('炸1').setDescription('發送炸1').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則當前頻道)').setRequired(false)),
-  new SlashCommandBuilder().setName('炸2').setDescription('發送炸2').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則當前頻道)').setRequired(false)),
-  new SlashCommandBuilder().setName('炸3').setDescription('發送炸3').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則當前頻道)').setRequired(false)),
-  new SlashCommandBuilder().setName('炸4').setDescription('發送炸4').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則當前頻道)').setRequired(false)),
-  new SlashCommandBuilder().setName('炸私聊').setDescription('對指定用戶私聊發送 (500條)'),
-  new SlashCommandBuilder().setName('自訂炸').setDescription('自訂炸文字').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則當前頻道)').setRequired(false)),
-  new SlashCommandBuilder().setName('定海神針').setDescription('發送定海神針 (30行)').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則當前頻道)').setRequired(false)),
-  new SlashCommandBuilder().setName('遠程炸').setDescription('混合炸1~炸4 (遠程)').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則當前頻道)').setRequired(false)),
-  new SlashCommandBuilder().setName('重啟').setDescription('重新啟動Bot（創作者限定）'),
-  new SlashCommandBuilder().setName('刷新').setDescription('重新註冊全域指令（創作者限定）')
+  new SlashCommandBuilder().setName('炸1').setDescription('發送炸1').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則本頻道)').setRequired(false)),
+  new SlashCommandBuilder().setName('炸2').setDescription('發送炸2').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則本頻道)').setRequired(false)),
+  new SlashCommandBuilder().setName('炸3').setDescription('發送炸3').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則本頻道)').setRequired(false)),
+  new SlashCommandBuilder().setName('炸4').setDescription('發送炸4').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則本頻道)').setRequired(false)),
+  new SlashCommandBuilder().setName('遠程炸').setDescription('混合炸1~炸4').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則本頻道)').setRequired(false)),
+  new SlashCommandBuilder().setName('炸私聊').setDescription('對任意使用者私聊發送500條').addStringOption(o => o.setName('user').setDescription('使用者ID').setRequired(true)),
+  new SlashCommandBuilder().setName('定海神針').setDescription('發送定海神針').addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則本頻道)').setRequired(false)),
+  new SlashCommandBuilder().setName('自訂炸').setDescription('自訂文字炸').addStringOption(o => o.setName('content').setDescription('輸入文字').setRequired(true)).addStringOption(o => o.setName('channel').setDescription('頻道ID (不填則本頻道)').setRequired(false)),
+  new SlashCommandBuilder().setName('刷新').setDescription('重新註冊全域指令（創建者限定）'),
+  new SlashCommandBuilder().setName('重啟').setDescription('重啟Bot（創建者限定）')
 ].map(b => b.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 async function registerGlobalCommands() {
-  if (!CLIENT_ID) return console.warn('CLIENT_ID 未設定');
-  try {
-    console.log('>> 註冊全域指令中...');
-    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commandBuilders });
-    console.log('>> 全域指令註冊完成');
-  } catch(e){ console.error('registerGlobalCommands error:', e); }
+  if (!CLIENT_ID) return;
+  try { await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commandBuilders }); } catch(e){console.error(e);}
 }
 
-// ---------- Client 事件 ----------
-client.once(Events.ClientReady, async () => {
-  console.log(`🤖 Bot 已上線：${client.user.tag}`);
-  await registerGlobalCommands();
-});
+// ---------- Client事件 ----------
+client.once(Events.ClientReady, async () => { console.log(`🤖 ${client.user.tag} 已上線`); await registerGlobalCommands(); });
 
-// ---------- Interaction 處理 ----------
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    // Modal 提交
-    if (interaction.type === InteractionType.ModalSubmit && interaction.customId.startsWith('modal_')) {
+    // ---------- Modal ----------
+    if (interaction.type === InteractionType.ModalSubmit) {
       const cmd = interaction.customId.replace('modal_','');
-      const input = interaction.fields.getTextInputValue('contentInput').trim();
-      let targetChannelId = interaction.channelId;
-      let content = input;
+      const remoteId = interaction.fields.getTextInputValue('remoteChannelId')?.trim() || interaction.channelId;
 
-      // 判斷是否輸入頻道ID
-      const maybeChannel = input.match(/^\d+$/);
-      if (maybeChannel) targetChannelId = input;
-
-      await interaction.reply({ content: `已排程 ${cmd} 到 <#${targetChannelId}>`, ephemeral: true });
-
-      if(cmd==='自訂炸') {
-        sendRepeatedToChannel(targetChannelId, content, 5, 300);
-        return;
+      if (cmd === '遠程炸') {
+        const mixed = spamMessages.炸1+'\n'+spamMessages.炸2+'\n'+spamMessages.炸3+'\n'+spamMessages.炸4;
+        sendRepeatedToChannel(remoteId, mixed, 5, 300);
+        return interaction.reply({ content: `已排程遠程炸到 <#${remoteId}>`, ephemeral: true });
       }
 
-      if(cmd==='遠程炸') {
-        const mixed = spamMessages.炸1 + '\n'+spamMessages.炸2+'\n'+spamMessages.炸3+'\n'+spamMessages.炸4;
-        sendRepeatedToChannel(targetChannelId, mixed, 5, 300);
-        return;
-      }
-
-      if(spamMessages[cmd]){
-        sendRepeatedToChannel(targetChannelId, spamMessages[cmd], 5, 300);
-        return;
-      }
-
+      if (spamMessages[cmd]) { sendRepeatedToChannel(remoteId, spamMessages[cmd], 5, 300); return interaction.reply({ content: `已排程 ${cmd} 到 <#${remoteId}>`, ephemeral: true }); }
       return;
     }
 
-    // Button 點擊
-    if(interaction.isButton() && interaction.customId){
-      const id = interaction.customId;
-
-      if(id==='請瘋狂按我'){
-        await interaction.reply({ content:'請瘋狂按我已啟動，請選擇對應指令', ephemeral:true });
-        return;
+    // ---------- Button ----------
+    if (interaction.isButton()) {
+      if (interaction.customId === '請瘋狂按我') {
+        // 連動最近一次炸指令
+        await interaction.reply({ content: '已觸發請瘋狂按我!', ephemeral: true });
       }
-
-      if(id==='炸私聊'){
-        await interaction.reply({ content:'已開始私聊炸訊息（背景500條）', ephemeral:true });
-        spamDMBackground(interaction.user.id);
-        return;
-      }
-
-      if(id in spamMessages || id==='自訂炸' || id==='遠程炸'){
-        const modal = createChannelModal(id, id==='自訂炸'?'輸入自訂文字內容':'可填頻道ID');
-        await interaction.showModal(modal);
-        return;
-      }
-
-      await interaction.reply({ content:'按鈕已收到', ephemeral:true });
       return;
     }
 
-    // Slash 指令
-    if(interaction.isChatInputCommand()){
+    // ---------- Slash指令 ----------
+    if (interaction.isChatInputCommand()) {
       const cmd = interaction.commandName;
-
-      // 創作者限定
-      if((cmd==='重啟'||cmd==='刷新') && !CREATOR_IDS.includes(interaction.user.id)){
-        return interaction.reply({ content:'❌ 只有創作者可以使用此指令', ephemeral:true });
-      }
-
-      await interaction.reply({ content:`✅ 已接收 ${cmd} 指令，正在排程執行...`, ephemeral:true });
-
       const optChannel = interaction.options.getString('channel');
-      const targetChannelId = optChannel && optChannel.trim().length ? optChannel.trim() : interaction.channelId;
+      const targetChannelId = optChannel && optChannel.trim() ? optChannel.trim() : interaction.channelId;
 
-      if(cmd==='炸私聊'){
-        spamDMBackground(interaction.user.id);
-        return;
+      if (cmd === '炸私聊') {
+        const userId = interaction.options.getString('user');
+        spamDMBackground(userId, spamMessages.炸1+'\n'+spamMessages.炸2+'\n'+spamMessages.炸3+'\n'+spamMessages.炸4);
+        return interaction.reply({ content: '已開始私聊炸訊息（500條）', ephemeral: true });
       }
 
-      if(cmd==='自訂炸'){
-        const content = '這是自訂炸示例文字'; // 可擴展為使用者輸入
-        sendRepeatedToChannel(targetChannelId, content, 5, 300);
-        return;
-      }
-
-      if(cmd==='遠程炸'){
-        const mixed = spamMessages.炸1 + '\n'+spamMessages.炸2+'\n'+spamMessages.炸3+'\n'+spamMessages.炸4;
+      if (cmd === '遠程炸') {
+        const mixed = spamMessages.炸1+'\n'+spamMessages.炸2+'\n'+spamMessages.炸3+'\n'+spamMessages.炸4;
         sendRepeatedToChannel(targetChannelId, mixed, 5, 300);
-        return;
+        return interaction.reply({ content: '已排程遠程炸', ephemeral: true });
       }
 
-      if(spamMessages[cmd]){
-        sendRepeatedToChannel(targetChannelId, spamMessages[cmd], 5, 300);
-        return;
+      if (cmd === '自訂炸') {
+        const content = interaction.options.getString('content');
+        sendRepeatedToChannel(targetChannelId, content, 5, 300);
+        return interaction.reply({ content: '已排程自訂炸', ephemeral: true });
       }
 
-      if(cmd==='重啟'){
-        console.log('重啟指令由創作者觸發，準備退出...');
-        process.exit(0);
+      if (cmd === '重啟' || cmd === '刷新') {
+        if (!CREATOR_IDS.includes(interaction.user.id)) return interaction.reply({ content: '❌ 只有創建者可用', ephemeral: true });
+        if (cmd === '重啟') { interaction.reply({ content: '重啟中...', ephemeral: true }); process.exit(0); }
+        if (cmd === '刷新') { await registerGlobalCommands(); return interaction.reply({ content: '全域指令已刷新', ephemeral: true }); }
       }
 
-      if(cmd==='刷新'){
-        registerGlobalCommands().then(()=>{
-          interaction.followUp({ content:'✅ 指令已刷新', ephemeral:true }).catch(()=>{});
-        }).catch(()=>{});
-        return;
-      }
+      if (spamMessages[cmd]) { sendRepeatedToChannel(targetChannelId, spamMessages[cmd], 5, 300); return interaction.reply({ content: `已排程 ${cmd}`, ephemeral: true }); }
+      if (cmd === '定海神針') { sendRepeatedToChannel(targetChannelId, spamMessages.定海神針, 1, 300); return interaction.reply({ content: '已排程定海神針', ephemeral: true }); }
     }
 
-  } catch(err){
-    console.error('interaction handler error:', err);
-    if(interaction && !interaction.replied){
-      try{ await interaction.reply({ content:'內部錯誤，請稍後再試', ephemeral:true }); }catch(e){}
-    }
-  }
+  } catch(e){console.error(e);}
 });
 
 // ---------- 保活 ----------
 const app = express();
 app.get('/', (req,res)=>res.send('Bot is running'));
-const PORT = process.env.PORT || 3000;
-app.listen(PORT,()=>console.log(`保活伺服器已啟動，port=${PORT}`));
+const PORT = process.env.PORT||3000;
+app.listen(PORT, ()=>console.log(`保活伺服器啟動 port=${PORT}`));
 
 // ---------- 登入 ----------
 client.login(TOKEN);
